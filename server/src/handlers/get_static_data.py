@@ -1,19 +1,19 @@
-import dataclasses
-
 from fastapi import Depends
 
-from src.auth import RequestContext
+from src.context import RequestContext
 from src.dependencies import get_static_files_cache
-from src.handlers.abc import BaseHandler, BaseResponse
-from src.static_file_cache import StaticFilesCache
+from src.file_cache import StaticFilesCache
+from src.shared_models import BaseModel
 
 
-@dataclasses.dataclass()
-class StaticDataResponse(BaseResponse):
-    data: dict
+class StaticDataResponse(BaseModel):
+    armoury: list
+    artefacts: list
+    bounties: dict
+    mercs: dict
 
 
-class GetStaticDataHandler(BaseHandler):
+class GetStaticDataHandler:
     def __init__(
         self,
         ctx: RequestContext = Depends(),
@@ -24,13 +24,9 @@ class GetStaticDataHandler(BaseHandler):
 
     async def handle(self) -> StaticDataResponse:
 
-        data = {
-            "nextDailyReset": self.ctx.next_daily_reset,
-            "artefacts": self.static_files.load_artefacts(),
-            "bounties": self.static_files.load_bounties(),
-            "armoury": self.static_files.load_armoury(),
-            "mercs": self.static_files.load_mercs(),
-            "quests": self.static_files.load_quests()
-        }
-
-        return StaticDataResponse(data=data)
+        return StaticDataResponse(
+            artefacts=self.static_files.load_artefacts(),
+            bounties=self.static_files.load_bounties(),
+            armoury=self.static_files.load_armoury(),
+            mercs=self.static_files.load_mercs()
+        )

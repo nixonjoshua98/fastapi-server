@@ -1,20 +1,21 @@
 from fastapi import Depends
 
-from src.auth import AuthenticatedRequestContext, get_authenticated_context
+from src.context import AuthenticatedRequestContext, RequestContext
 from src.handlers.artefacts import (BulkUpgradeArtefactsHandler,
                                     BulkUpgradeArtefactsResponse,
                                     UnlockArtefactHandler,
                                     UnlockArtefactResponse)
-from src.pymodels import BaseModel
-from src.request_models import ArtefactUpgradeModel
+from src.handlers.auth_handler import get_authenticated_context
+from src.request_models import ArtefactUpgradeRequestModel
 from src.response import EncryptedServerResponse, ServerResponse
 from src.router import APIRouter
+from src.shared_models import BaseModel
 
 router = APIRouter(prefix="/api/artefact")
 
 
 class ArtefactBulkUpgradeModel(BaseModel):
-    artefacts: list[ArtefactUpgradeModel]
+    artefacts: list[ArtefactUpgradeRequestModel]
 
 
 @router.post("/bulk-upgrade")

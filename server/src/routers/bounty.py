@@ -1,11 +1,12 @@
 from fastapi import Depends
 
-from src.auth import AuthenticatedRequestContext, get_authenticated_context
-from src.handlers import (BountyClaimResponse, ClaimBountiesHandler,
-                          UpdateBountiesHandler, UpdateBountiesResponse)
-from src.pymodels import BaseModel
+from src.context import AuthenticatedRequestContext, RequestContext
+from src.handlers.auth_handler import get_authenticated_context
+from src.handlers.bounties import (BountyClaimResponse, ClaimBountiesHandler,
+                                   UpdateBountiesHandler)
 from src.response import ServerResponse
 from src.router import APIRouter
+from src.shared_models import BaseModel
 
 router = APIRouter()
 
@@ -34,6 +35,6 @@ async def set_active_bounties(
     user: AuthenticatedRequestContext = Depends(get_authenticated_context),
     handler: UpdateBountiesHandler = Depends(),
 ):
-    resp: UpdateBountiesResponse = await handler.handle(user, model.bounty_ids)
+    resp = await handler.handle(user, model.bounty_ids)
 
     return ServerResponse(resp.bounties)

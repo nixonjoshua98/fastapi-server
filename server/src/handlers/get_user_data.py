@@ -1,78 +1,81 @@
-import dataclasses
-import datetime as dt
 
-import multipledispatch as md
 from bson import ObjectId
 from fastapi import Depends
 
-from src.auth import AuthenticatedRequestContext, RequestContext
-from src.handlers.abc import BaseHandler, BaseResponse
-from src.mongo.armoury import ArmouryRepository, armoury_repository
-from src.mongo.artefacts import ArtefactsRepository, artefacts_repository
-from src.mongo.bounties import BountiesRepository, bounties_repository
-from src.mongo.bountyshop import BountyShopRepository, bountyshop_repository
-from src.mongo.currency import CurrencyRepository, currency_repository
-from src.mongo.mercs import UnlockedMercsRepository, get_unlocked_mercs_repo
-from src.mongo.quests import QuestsRepository, get_quests_repo
+from src.context import RequestContext
+from src.handlers import GetUserDailyStatsHandler
+from src.handlers.player_stats import GetLifetimeStatsHandler
+from src.handlers.quests import GetQuestsHandler
+from src.repositories import ArtefactsRepository, get_artefacts_repository
+from src.repositories.armoury import ArmouryRepository, get_armoury_repository
+from src.repositories.bounties import (BountiesRepository,
+                                       get_bounties_repository)
+from src.repositories.bountyshop import (BountyShopRepository,
+                                         bountyshop_repository)
+from src.repositories.currency import (CurrencyRepository,
+                                       get_currency_repository)
+from src.repositories.mercs import (UnlockedMercsRepository,
+                                    get_unlocked_mercs_repo)
+from src.shared_models import BaseModel
 from src.static_models.bountyshop import DynamicBountyShop, dynamic_bounty_shop
 
 
-@dataclasses.dataclass()
-class GetUserDataResponse(BaseResponse):
+class GetUserDataResponse(BaseModel):
     data: dict
 
 
-class GetUserDataHandler(BaseHandler):
+class GetUserDataHandler:
     def __init__(
         self,
         ctx: RequestContext = Depends(),
 
+        # = Handlers = #
+        daily_stats: GetUserDailyStatsHandler = Depends(),
+        get_quests: GetQuestsHandler = Depends(),
+        lifetime_stats: GetLifetimeStatsHandler = Depends(),
+
         # = Repositories = #
-        quests=Depends(get_quests_repo),
         units_repo=Depends(get_unlocked_mercs_repo),
         bountyshop=Depends(dynamic_bounty_shop),
-        armoury_repo=Depends(armoury_repository),
-        bounties_repo=Depends(bounties_repository),
-        currency_repo=Depends(currency_repository),
-        artefacts_repo=Depends(artefacts_repository),
-        bountyshop_repo=Depends(bountyshop_repository)
+        armoury_repo=Depends(get_armoury_repository),
+        bounties_repo=Depends(get_bounties_repository),
+        currency_repo=Depends(get_currency_repository),
+        artefacts_repo=Depends(get_artefacts_repository),
+        bountyshop_repo=Depends(bountyshop_repository),
     ):
         self.ctx: RequestContext = ctx
 
-        self._quests: QuestsRepository = quests
-        self.bountyshop: DynamicBountyShop = bountyshop
-        self.armoury_repo: ArmouryRepository = armoury_repo
-        self.currency_repo: CurrencyRepository = currency_repo
-        self.units_repo: UnlockedMercsRepository = units_repo
-        self.bounties_repo: BountiesRepository = bounties_repo
-        self.artefacts_repo: ArtefactsRepository = artefacts_repo
-        self.bountyshop_repo: BountyShopRepository = bountyshop_repo
+        # = Dynamic/Static Data = #
+        self._bountyshop_data: DynamicBountyShop = bountyshop
 
-    @md.dispatch(ObjectId)
+        # = Handlers = #
+        self._get_quests = get_quests
+        self._daily_stats = daily_stats
+        self._lifetime_stats = lifetime_stats
+
+        # = Repositories = #
+        self._armoury: ArmouryRepository = armoury_repo
+        self._currencies: CurrencyRepository = currency_repo
+        self._units: UnlockedMercsRepository = units_repo
+        self._bounties: BountiesRepository = bounties_repo
+        self._artefacts: ArtefactsRepository = artefacts_repo
+        self._bountyshop: BountyShopRepository = bountyshop_repo
+
     async def handle(self, uid: ObjectId):
-        return await self.handle(uid, self.ctx.prev_daily_reset)
-
-    @md.dispatch(AuthenticatedRequestContext)
-    async def handle(self, ctx: AuthenticatedRequestContext):
-        return await self.handle(ctx.user_id, ctx.prev_daily_reset)
-
-    @md.dispatch(ObjectId, dt.datetime)
-    async def handle(self, uid: ObjectId, prev_reset: dt.datetime) -> GetUserDataResponse:
-
-        bshop_purchases = await self.bountyshop_repo.get_daily_purchases(uid, prev_reset)
-
         data = {
-            "currencyItems": await self.currency_repo.get_user(uid),
-            "bountyData": await self.bounties_repo.get_user_bounties(uid),
-            "armouryItems": await self.armoury_repo.get_user_items(uid),
-            "artefacts": await self.artefacts_repo.get_user_artefacts(uid),
+            "currencyItems": await self._currencies.get_user(uid),
+            "bountyData": await self._bounties.get_user_bounties(uid),
+            "armouryItems": await self._armoury.get_user_items(uid),
+            "artefacts": await self._artefacts.get_user_artefacts(uid),
             "bountyShop": {
-                "purchases": bshop_purchases,
-                "shopItems": self.bountyshop.dict(),
+                "purchases": await self._bountyshop.get_daily_purchases(uid, self.ctx.prev_daily_refresh),
+                "shopItems": self._bountyshop_data.dict(),
             },
-            "unlockedMercs": await self.units_repo.get_user_mercs(uid),
-            "quests": {
-                "completedMercQuests": [q.quest_id for q in await self._quests.get_completed_merc_quests(uid)]
+            "unlockedMercs": await self._units.get_user_mercs(uid),
+            "quests": await self._get_quests.handle(uid, self.ctx),
+            "userStats": {
+                "lifetime": await self._lifetime_stats.handle(uid),
+                "daily": await self._daily_stats.handle(uid, self.ctx)
             }
         }
 

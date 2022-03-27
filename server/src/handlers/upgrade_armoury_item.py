@@ -1,32 +1,33 @@
-import dataclasses
+
 
 from fastapi import Depends
 
 from src import utils
-from src.auth import AuthenticatedRequestContext
+from src.context import AuthenticatedRequestContext, RequestContext
 from src.dependencies import get_static_armoury
-from src.handlers.abc import BaseHandler, BaseResponse, HandlerException
-from src.mongo.armoury import (ArmouryItemModel, ArmouryRepository,
-                               armoury_repository)
-from src.mongo.currency import CurrenciesModel, CurrencyRepository
-from src.mongo.currency import Fields as CurrencyFields
-from src.mongo.currency import currency_repository
+from src.exceptions import HandlerException
+from src.handlers.auth_handler import get_authenticated_context
+from src.repositories.armoury import (ArmouryItemModel, ArmouryRepository,
+                                      get_armoury_repository)
+from src.repositories.currency import CurrenciesModel, CurrencyRepository
+from src.repositories.currency import Fields as CurrencyFields
+from src.repositories.currency import get_currency_repository
+from src.shared_models import BaseModel
 from src.static_models.armoury import ArmouryItemID, StaticArmouryItem
 
 
-@dataclasses.dataclass()
-class UpgradeItemResponse(BaseResponse):
+class UpgradeItemResponse(BaseModel):
     item: ArmouryItemModel
     currencies: CurrenciesModel
     upgrade_cost: int
 
 
-class UpgradeArmouryItemHandler(BaseHandler):
+class UpgradeArmouryItemHandler:
     def __init__(
         self,
         static_data=Depends(get_static_armoury),
-        armoury_repo=Depends(armoury_repository),
-        currency_repo=Depends(currency_repository),
+        armoury_repo=Depends(get_armoury_repository),
+        currency_repo=Depends(get_currency_repository),
     ):
         self.static_data: list[StaticArmouryItem]= static_data
 
@@ -53,8 +54,8 @@ class UpgradeArmouryItemHandler(BaseHandler):
             raise HandlerException(400, "Cannot afford upgrade cost")
 
         # Deduct the upgrade cost and return all user items AFTER the update
-        u_currencies = await self.currency_repo.inc_value(
-            user.user_id, CurrencyFields.ARMOURY_POINTS, -upgrade_cost
+        u_currencies = await self.currency_repo.incr(
+            user.user_id, CurrencyFields.armoury_points, -upgrade_cost
         )
 
         # Update the requested item here

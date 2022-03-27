@@ -6,7 +6,7 @@ from random import Random
 from fastapi import Depends
 
 from src import utils
-from src.auth import RequestContext
+from src.context import AuthenticatedRequestContext, RequestContext
 from src.dependencies import get_static_armoury
 from src.static_models.armoury import StaticArmouryItem
 
@@ -23,15 +23,15 @@ async def dynamic_bounty_shop(
     shop_config: FullBountyShopConfig = Depends(bounty_shop_config),
 ) -> DynamicBountyShop:
 
-    return DynamicBountyShop(static_data, ctx.prev_daily_reset, shop_config)
+    return DynamicBountyShop(static_data, ctx.prev_daily_refresh, shop_config)
 
 
 class DynamicBountyShop:
     def __init__(
-            self,
-            s_armoury: list[StaticArmouryItem],
-            prev_reset: dt.datetime,
-            config: FullBountyShopConfig,
+        self,
+        s_armoury: list[StaticArmouryItem],
+        prev_reset: dt.datetime,
+        config: FullBountyShopConfig,
     ):
         self.prev_reset: dt.datetime = prev_reset
         self.config: BountyShopLevelConfig = self._get_shop_config(config)

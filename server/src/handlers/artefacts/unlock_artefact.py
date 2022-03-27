@@ -1,62 +1,64 @@
-import dataclasses
+
 import math
 import random
 
 from fastapi import Depends
 
-from src.auth import AuthenticatedRequestContext
+from src.context import AuthenticatedRequestContext
 from src.dependencies import get_static_artefacts_dict
-from src.handlers.abc import BaseHandler, BaseResponse, HandlerException
-from src.mongo.artefacts import (ArtefactModel, ArtefactsRepository,
-                                 artefacts_repository)
-from src.mongo.currency import CurrenciesModel, CurrencyRepository
-from src.mongo.currency import Fields as CurrencyFields
-from src.mongo.currency import currency_repository
+from src.exceptions import HandlerException
+from src.repositories.artefacts import (ArtefactModel, ArtefactsRepository,
+                                        get_artefacts_repository)
+from src.repositories.currency import CurrenciesModel, CurrencyRepository
+from src.repositories.currency import Fields as CurrencyFields
+from src.repositories.currency import get_currency_repository
+from src.shared_models import BaseModel
 from src.static_models.artefacts import StaticArtefact
 
 
-@dataclasses.dataclass()
-class UnlockArtefactResponse(BaseResponse):
+class UnlockArtefactResponse(BaseModel):
     artefact: ArtefactModel
     currencies: CurrenciesModel
     unlock_cost: int
 
 
-class UnlockArtefactHandler(BaseHandler):
+class UnlockArtefactHandler:
     def __init__(
         self,
         artefacts_data=Depends(get_static_artefacts_dict),
-        artefacts_repo: ArtefactsRepository = Depends(artefacts_repository),
-        currency_repo: CurrencyRepository = Depends(currency_repository),
+        artefacts_repo=Depends(get_artefacts_repository),
+        currency_repo=Depends(get_currency_repository),
     ):
         self.artefacts_data: dict[int, StaticArtefact] = artefacts_data
-        self.artefacts_repo = artefacts_repo
-        self.currency_repo = currency_repo
+        self._artefacts: ArtefactsRepository = artefacts_repo
+        self._currencies: CurrencyRepository = currency_repo
 
     async def handle(self, user: AuthenticatedRequestContext) -> UnlockArtefactResponse:
-        u_artefacts: list[ArtefactModel] = await self.artefacts_repo.get_user_artefacts(user.user_id)
+        u_artefacts: list[ArtefactModel] = await self._artefacts.get_user_artefacts(user.user_id)
 
         if self.unlocked_all_artefacts(u_artefacts):
             raise HandlerException(400, "All artefacts unlocked")
 
         unlock_cost = self.unlock_cost(u_artefacts)
 
-        currencies: CurrenciesModel = await self.currency_repo.get_user(user.user_id)
+        currencies: CurrenciesModel = await self._currencies.get_user(user.user_id)
 
         if unlock_cost > currencies.prestige_points:
             raise HandlerException(400, "Cannot afford unlock cost")
 
         new_art_id = self.get_new_artefact(u_artefacts)
 
-        currencies: CurrenciesModel = await self.currency_repo.inc_value(
-            user.user_id, CurrencyFields.PRESTIGE_POINTS, -unlock_cost
+        currencies: CurrenciesModel = await self._currencies.decr(
+            user.user_id, CurrencyFields.prestige_points, unlock_cost
         )
 
-        u_new_artefact: ArtefactModel = await self.artefacts_repo.add_new_artefact(
-            user.user_id, new_art_id
-        )
+        u_new_artefact: ArtefactModel = await self._artefacts.add_new_artefact(user.user_id, new_art_id)
 
-        return UnlockArtefactResponse(u_new_artefact, currencies, unlock_cost)
+        return UnlockArtefactResponse(
+            artefact=u_new_artefact,
+            currencies=currencies,
+            unlock_cost=unlock_cost
+        )
 
     def unlocked_all_artefacts(self, u_artefacts: list[ArtefactModel]) -> bool:
         return len(u_artefacts) >= len(self.artefacts_data)
